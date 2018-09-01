@@ -22,7 +22,8 @@ object ModelJsonProtocol extends DefaultJsonProtocol {
       case r"o:(.*)$n"   => Entity(n, EntityKind.ModuleClass)
       case r"cl:(.*)$n"  => Entity(n, EntityKind.Class)
       case r"tp:(.*)$n"  => Entity(n, EntityKind.Type)
-      case _             => throw new DeserializationException("'EntityKind:Name' string expected")
+      case r"file:(.*)$n"  => Entity(n, EntityKind.File)
+      case _ => throw new DeserializationException("'EntityKind:Name' string expected")
     }
   }
 
@@ -36,8 +37,9 @@ object ModelJsonProtocol extends DefaultJsonProtocol {
       val data = Seq(
         "sym" -> d.from.toJson,
         (d.kind match {
-          case DependencyKind.Extends => "extends"
-          case DependencyKind.Uses    => "uses"
+          case DependencyKind.Extends  => "extends"
+          case DependencyKind.Uses     => "uses"
+          case DependencyKind.Declares => "declares"
         }) -> d.to.toJson
       )
       JsObject((if (d.count == 1) data else data :+ ("count" -> JsNumber(d.count))): _*)
