@@ -24,8 +24,9 @@ object ClassMode {
       } yield FullDependency(
         from = from,
         to = to,
-        kind = DependencyKind.Uses,
-        count = 1)
+        kind = if (dep.kind == DependencyKind.Declares) DependencyKind.Declares else DependencyKind.Uses,
+        count = 1,
+      )
     promoted.distinct.sortBy(_.toString)
   }
 
@@ -47,8 +48,7 @@ object ClassMode {
           case EntityKind.Term if packages.isEmpty =>
             None
           case _ =>
-            throw new IllegalArgumentException(
-              s"unexpected entity kind after packages in $path")
+            throw new IllegalArgumentException(s"unexpected entity kind after packages in $path: $next")
         }
       case _ =>
         None
@@ -62,10 +62,6 @@ object ClassMode {
   // just a type alias for `java.lang.Object`
 
   private val isClassKind: EntityKind => Boolean =
-    Set[EntityKind](
-      EntityKind.Trait,
-      EntityKind.Class,
-      EntityKind.ModuleClass,
-      EntityKind.Type)
+    Set[EntityKind](EntityKind.Trait, EntityKind.Class, EntityKind.ModuleClass, EntityKind.Type, EntityKind.File)
 
 }

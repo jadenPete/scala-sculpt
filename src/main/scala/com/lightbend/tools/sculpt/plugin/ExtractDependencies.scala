@@ -5,14 +5,12 @@ package com.lightbend.tools.sculpt.plugin
 import com.lightbend.tools.sculpt.model.ModelJsonProtocol._
 import com.lightbend.tools.sculpt.model._
 import spray.json._
-
 import java.io.File
 import scala.collection.mutable
-import scala.collection.mutable.HashSet
+import scala.collection.mutable.{ArrayBuffer, HashSet}
 import scala.io.Codec
 import scala.reflect.internal.Flags.PACKAGE
 import scala.tools.nsc
-
 import nsc.plugins._
 
 // adapted from the incremental compiler
@@ -47,14 +45,19 @@ abstract class ExtractDependencies extends PluginComponent {
       val fullDependencies =
         (createFullDependencies(deps, DependencyKind.Uses) ++ createFullDependencies(
           inheritDeps,
-          DependencyKind.Extends))
+          DependencyKind.Extends,
+        ))
           .filterNot(d => d.from == d.to)
-          .groupBy(identity).map { case (d, l) => d.copy(count = l.size) }.toSeq.sortBy(_.toString)
+          .groupBy(identity)
+          .map { case (d, l) => d.copy(count = l.size) }
+          .toSeq
+          .sortBy(_.toString)
       val json =
         if (classMode)
           ClassMode(fullDependencies).toJson
         else
           fullDependencies.toJson
+
       writeOutput(FullDependenciesPrinter(json))
     }
 
@@ -67,30 +70,33 @@ abstract class ExtractDependencies extends PluginComponent {
       }
     }
 
-    def createFullDependencies(
-        syms: MultiMapIterator,
-        kind: DependencyKind): Seq[FullDependency] = {
+    def createFullDependencies(syms: MultiMapIterator, kind: DependencyKind): Seq[FullDependency] = {
       def entitiesFor(s: Symbol) =
-        Path(s.ownerChain.reverse.dropWhile(s => s.isEffectiveRoot || s.isEmptyPackage).map(
-          Entity.forSymbol _))
+        Path(s.ownerChain.reverse.dropWhile(s => s.isEffectiveRoot || s.isEmptyPackage).map(Entity.forSymbol _))
 
       def fileDepFor(s: Symbol): FullDependency = {
         val path = Path(Seq(Entity(s.associatedFile.canonicalPath, EntityKind.File)))
         FullDependency(path, entitiesFor(s), DependencyKind.Declares, 1)
       }
-      // all the symbols that exist in syms
-      // we must compute this as we walk through the iterator
-      val allSymbols = HashSet.empty[Symbol]
 
-      val nonFileDeps = for {
-        (from, tos) <- syms
-        fromEntities = entitiesFor(from)
-        to <- tos
-        _ = (allSymbols += from) += to
-      } yield FullDependency(fromEntities, entitiesFor(to), kind, 1)
+      val nonFileDeps = ArrayBuffer.empty[FullDependency]
+
+      val allSymbols = mutable.HashSet.empty[Symbol]
+
+      syms.foreach { case (from, tos) =>
+        val fromEntities = entitiesFor(from)
+
+        allSymbols += from
+
+        tos.foreach { to =>
+          nonFileDeps += FullDependency(fromEntities, entitiesFor(to), kind, 1)
+
+          allSymbols += to
+        }
+      }
 
       // now create all the file dependencies
-      val fileDeps = allSymbols.iterator.map(fileDepFor)
+      val fileDeps = allSymbols.map(fileDepFor)
       // It is important to exhaust nonFileDeps first since doing so
       // populates the mutable HashSet. We do this rather than materialize
       // the MultiMapIterator or do a complex single traversal
@@ -123,8 +129,8 @@ abstract class ExtractDependencies extends PluginComponent {
 
     object MacroExpansionOf {
       def unapply(tree: Tree): Option[Tree] =
-        tree.attachments.all.collect {
-          case att: analyzer.MacroExpansionAttachment => att.expandee
+        tree.attachments.all.collect { case att: analyzer.MacroExpansionAttachment =>
+          att.expandee
         }.headOption
     }
 
@@ -134,10 +140,11 @@ abstract class ExtractDependencies extends PluginComponent {
     }.toSet
     private def flattenTypeToSymbols(tp: Type): List[Symbol] =
       if (tp eq null) Nil
-      else tp match {
-        case ct: CompoundType => ct.typeSymbolDirect :: ct.parents.flatMap(flattenTypeToSymbols)
-        case _                => List(tp.typeSymbolDirect)
-      }
+      else
+        tp match {
+          case ct: CompoundType => ct.typeSymbolDirect :: ct.parents.flatMap(flattenTypeToSymbols)
+          case _                => List(tp.typeSymbolDirect)
+        }
 
     override def traverse(tree: Tree): Unit =
       tree match {
